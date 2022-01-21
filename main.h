@@ -37,29 +37,33 @@ typedef int8_t s8;
 typedef int16_t s16;
 typedef int32_t s32;
 
-/*
-template<typename T> struct Writer {
-	FILE* _file;
+typedef struct server_state {
+    u8* in;
+    u8* out;
 
-	public:
-	Writer(FILE* file) : _file(file) {}
+	int file;
+    int done;
+
+	u32 counter;
+} server_state_t;
+
+typedef u16 (*request_handler_t) (server_state_t*, u8, u16);
+
+typedef struct global_state {
+    u8 cur_opcode;
+
+    u8 xkb_opcode;
+    u8 damage_opcode;
+    u8 randr_opcode;
 	
-	ssize_t write(T* v) {
-		return fwrite((void*) v, sizeof(T), 1, _file);
-	}
-};
-*/
+	request_handler_t op_handlers[256];
+} global_state_t;
 
-typedef u16 (*request_handler_t) (int, const u8*, u8*, u8, u16);
+extern global_state_t _globals;
 
 extern u8 alloc_opcode();
-extern u32 _counter;
 
-extern u8 _xkb_opcode;
-extern u8 _damage_opcode;
-extern u8 _randr_opcode;
-
-u16 default_handler(int file, const u8* in, u8* out, u8 opcode, u16 len);
+u16 default_handler(server_state_t* state, u8 opcode, u16 len);
 
 void register_handler(request_handler_t handler, uint8_t opcode);
 

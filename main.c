@@ -8,28 +8,25 @@
 
 // This is a best effort attempt at a replacement X11 server
 
-request_handler_t _op_handlers[256];
-uint32_t _counter;
-u8 _cur_opcode;
-
-u8 _xkb_opcode;
-u8 _damage_opcode;
-u8 _randr_opcode;
+global_state_t _globals;
 
 u8 alloc_opcode() {
-	u8 op = _cur_opcode;
-	_cur_opcode++;
+	u8 op = _globals.cur_opcode;
+	_globals.cur_opcode++;
 	return op;
 }
 
-u16 default_handler(int file, const u8* in, u8* out, u8 minor, u16 len) {
-	printf("Unhandled Request: op=%u, minor=%u, l=%u\n", in[0], minor, len);
+u16 default_handler(server_state_t* state, u8 minor, u16 len) {
+	printf("Unhandled Request: op=%u, minor=%u, l=%u\n", state->in[0], minor, len);
 	return 1;
 }
 
 void register_handler(request_handler_t handler, uint8_t opcode) {
-	_op_handlers[opcode] = handler;
+	_globals.op_handlers[opcode] = handler;
 }
+
+/*		These are placeholders, and should be removed as handlers
+ *		for the extensions are added. */
 void register_damage_handlers() {}  
 //void register_xkb_handlers() {}
 void register_randr_handlers() {}
@@ -46,10 +43,12 @@ void register_all_handlers() {
     register_randr_handlers();
 }
 
-u16 read_request(int file, u8* in, u8* out) {
+u16 read_request(server_state_t* state) {
 	size_t r;
-	
-	r = read(file, in, 4);
+
+	u8* in = state->in;
+
+	r = read(state->file, in, 4);
 	
 	if(r == -1) {
 		printf("Socket closed by remote end\n");
@@ -65,8 +64,8 @@ u16 read_request(int file, u8* in, u8* out) {
 	u8 minor_opcode = in[1];
 	u16 length = *((u16*) &in[2]);
 
-	read(file, in + 4, (length - 1) * 4);
-	_op_handlers[opcode](file, in, out, minor_opcode, length);	
+	read(state->file, in + 4, (length - 1) * 4);
+	_globals.op_handlers[opcode](state, minor_opcode, length);
 	
 	return 0;
 }
@@ -196,29 +195,26 @@ void write_accepted(int file) {
 		//write_depth(file, &depths[i], &visuals[0]);
 }
 
-u8 init_connection(u8* in, int file) {
+int init_connection(server_state_t* state) {
 	xcb_setup_request_t* i;
-	int n, d, n_real, d_real, pos;
+	int n_real, d_real, pos;
 
-	i = (xcb_setup_request_t*) in;
+	i = (xcb_setup_request_t*) state->in;
 
-	read(file, i, sizeof(xcb_setup_request_t));
-	
-	n = i->authorization_protocol_name_len;
-	d = i->authorization_protocol_data_len;
+	read(state->file, i, sizeof(xcb_setup_request_t));
 
-	n_real = (n + 4) & -4;
-	d_real = (d + 4) & -4;
+	n_real = (i->authorization_protocol_name_len + 3) & -4;
+	d_real = (i->authorization_protocol_data_len + 3) & -4;
 	
 	pos = sizeof(xcb_setup_request_t);
 
-	if(n > 0) {
-		read(file, &in[pos], n_real);
+	if(n_real > 0) {
+		read(state->file, &state->in[pos], n_real);
 		pos += n_real;
 	}
 	
-	if(d > 0) {
-		read(file, &in[pos], d_real);
+	if(d_real > 0) {
+		read(state->file, &state->in[pos], d_real);
 	}
 	
 	printf("Connection Request: %c, v%d-%d\n",
@@ -226,11 +222,11 @@ u8 init_connection(u8* in, int file) {
 			i->protocol_major_version,
 			i->protocol_minor_version);
 
-	write_accepted(file);
+	write_accepted(state->file);
 	return 0;
 }
 
-int open_socket(int* listen_fd, int* accept_fd, struct sockaddr_in* saddr, struct sockaddr_in* caddr, socklen_t* caddr_size) {	
+int listen_socket(int* listen_fd, struct sockaddr_in* saddr) {
 	int err;
 
 	*listen_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -243,11 +239,10 @@ int open_socket(int* listen_fd, int* accept_fd, struct sockaddr_in* saddr, struc
 	if(err != 0) return 1;
 
 	err = listen(*listen_fd, 10);
-	*accept_fd = accept(*listen_fd, (struct sockaddr*) caddr, caddr_size);
 	return 0;
 }
 
-int send_input(int file, int* focus_in) {
+int send_input(server_state_t* state, int* focus_in) {
 	char buf[REPLY_SIZE];
 	
 	if (*focus_in) {
@@ -258,7 +253,7 @@ int send_input(int file, int* focus_in) {
 		
 		e->response_type = XCB_FOCUS_IN;
 		e->detail = XCB_NOTIFY_DETAIL_POINTER;
-		e->sequence = _counter;
+		e->sequence = state->counter;
 		e->event = 0;
 		e->mode = XCB_NOTIFY_MODE_NORMAL;
 	}
@@ -270,27 +265,22 @@ int send_input(int file, int* focus_in) {
 		
 		e->response_type = XCB_FOCUS_OUT;
 		e->detail = XCB_NOTIFY_DETAIL_NONE;
-		e->sequence = _counter;
+		e->sequence = state->counter;
 		e->event = 0;
 		e->mode = XCB_NOTIFY_MODE_NORMAL;
 	}
 
-	write(file, buf, 32);
+	write(state->file, buf, 32);
 	return 0;
 }
 
 int main() {
-	u8* init_request;
-	u8* in;
-	u8* out;
 	int listen_fd;
 	int accept_fd;
-	int done;
 	socklen_t caddr_size;
 	struct sockaddr_in saddr;
 	struct sockaddr_in caddr;
-
-	register_all_handlers();
+	server_state_t state;
 
 	saddr.sin_family = AF_INET;
 	saddr.sin_port = htons(6005);
@@ -298,36 +288,46 @@ int main() {
 
 	caddr_size = 0;
 
-	if(open_socket(&listen_fd, &accept_fd, &saddr, &caddr, &caddr_size)) {
+	if(listen_socket(&listen_fd, &saddr)) {
 		printf("Couldn't listen() on socket, errno=%d\n", errno);
 		exit(1);
 	}
-	
-	init_request = malloc(REQUEST_SIZE);	
-	in = malloc(REQUEST_SIZE);
-	out = malloc(REPLY_SIZE);
-	
-	init_connection(init_request, accept_fd);
-	free(init_request);
 
-	done = 0;
-	_counter = 1;
-	_cur_opcode = 128;
+	accept_fd = accept(listen_fd, (struct sockaddr*) &caddr, &caddr_size);
+	if(accept_fd < 0) {
+		printf("Couldn't accept() on socket, errno=%d\n", errno);
+		exit(1);
+	}
 	
+	_globals.cur_opcode = 128;
+
+	register_all_handlers();
+
+	state.file = accept_fd;
+	state.done = 0;
+	state.counter = 1;
 	int _focus = 0;
 
-	while(!done) {
-		if(read_request(accept_fd, in, out) != 0) {
-			done = 1;
+	state.in = malloc(REQUEST_SIZE);
+	state.out = malloc(REPLY_SIZE);
+
+	init_connection(&state);
+
+	while(!state.done) {
+		if(read_request(&state) != 0) {
+			state.done = 1;
 		}
-		send_input(accept_fd, &_focus);
+		send_input(&state, &_focus);
 		
-		_counter++;
+		state.counter++;
 	}
+
+	free(state.in);
+	free(state.out);
 
 	//sleep(10);
 	close(listen_fd);
-	close(accept_fd);
+	close(state.file);
 	return 0;
 }
 

@@ -3,50 +3,50 @@
 const char* _extensions[] = { "XKEYBOARD", "DAMAGE", "RANDR" };
 size_t _extensions_cnt = 3;
 
-u16 handle_change_window_attributes(int file, const u8* in, u8* out, u8 minor, u16 len) {
+u16 handle_change_window_attributes(server_state_t* state, u8 minor, u16 len) {
 	xcb_change_window_attributes_request_t* i;
 
-	i = (xcb_change_window_attributes_request_t*) in;
+	i = (xcb_change_window_attributes_request_t*) state->in;
 
 	printf("ChangeWindowAttributes: window=%u, mask=0x%x, n=%u\n",
 			i->window, i->value_mask, len - 3);
-	for (int i = 0; i < (len - 3); i++) {
-		printf("v=%u\n", ((u32*) in)[len - 3]);
+	for (int j = 0; j < (len - 3); j++) {
+		printf("v=%u\n", ((u32*) state->in)[len - 3]);
 	}
 	return 0;
 }
 
-u16 handle_create_pixmap(int file, const u8* in, u8* out, u8 minor, u16 len) {
+u16 handle_create_pixmap(server_state_t* state, u8 minor, u16 len) {
 	xcb_create_pixmap_request_t* i;
 
-	i = (xcb_create_pixmap_request_t*) in;
+	i = (xcb_create_pixmap_request_t*) state->in;
 	printf("CreatePixmap: pid=%u, drawable=%u, depth=%u, s=%ux%u\n", i->pid, i->drawable, i->depth, i->width, i->height);
 	return 0;
 }
 
-u16 handle_free_pixmap(int file, const u8* in, u8* out, u8 minor, u16 len) {
+u16 handle_free_pixmap(server_state_t* state, u8 minor, u16 len) {
 	xcb_free_pixmap_request_t* i;
 
-	i = (xcb_free_pixmap_request_t*) in;
+	i = (xcb_free_pixmap_request_t*) state->in;
 	printf("FreePixmap: pid=%u\n", i->pixmap);
 	return 0;
 }
 
-u16 handle_intern_atom(int file, const u8* in, u8* out, u8 minor, u16 len) {
+u16 handle_intern_atom(server_state_t* state, u8 minor, u16 len) {
 	xcb_intern_atom_request_t* i;
 	xcb_intern_atom_reply_t* r;
 
-	i = (xcb_intern_atom_request_t*) in;
-	r = (xcb_intern_atom_reply_t*) out;
+	i = (xcb_intern_atom_request_t*) state->in;
+	r = (xcb_intern_atom_reply_t*) state->out;
 
 	char buf[128];
-	memcpy(buf, &in[sizeof(xcb_intern_atom_request_t)], i->name_len);
+	memcpy(buf, &state->in[sizeof(xcb_intern_atom_request_t)], i->name_len);
 
 	buf[i->name_len] = '\0';
 	printf("InternAtom: name=\"%s\"", buf);
 
 	r->response_type = 1;
-	r->sequence = _counter;
+	r->sequence = state->counter;
 	r->length = 0;
 
 	r->atom = XCB_ATOM_NONE;
@@ -61,20 +61,20 @@ u16 handle_intern_atom(int file, const u8* in, u8* out, u8 minor, u16 len) {
 		printf(", returned %u\n", r->atom);
 	}
 	
-	write(file, out, 32);
+	write(state->file, r, 32);
 	return 0;
 }
 
-u16 handle_query_best_size(int file, const u8* in, u8* out, u8 minor, u16 len) {
+u16 handle_query_best_size(server_state_t* state, u8 minor, u16 len) {
 	xcb_query_best_size_request_t* i;
 	xcb_query_best_size_reply_t* r;
 
-	i = (xcb_query_best_size_request_t*) in;
-	r = (xcb_query_best_size_reply_t*) out;
+	i = (xcb_query_best_size_request_t*) state->in;
+	r = (xcb_query_best_size_reply_t*) state->out;
 	printf("QueryBestSize: drawable=%u, w=%u, h=%u\n", i->drawable, i->width, i->height);
 
 	r->response_type = 1;
-	r->sequence = _counter;
+	r->sequence = state->counter;
 	r->length = 0;
 
 	switch(i->_class) {
@@ -103,14 +103,14 @@ u16 handle_query_best_size(int file, const u8* in, u8* out, u8 minor, u16 len) {
 			break;
 	}
 
-	write(file, out, 32);
+	write(state->file, r, 32);
 
 	return 0;
 }
 
-u16 handle_list_extensions(int file, const u8* in, u8* out, u8 minor, u16 len) {
+u16 handle_list_extensions(server_state_t* state, u8 minor, u16 len) {
 	xcb_list_extensions_reply_t* r;
-	r = (xcb_list_extensions_reply_t*) out;
+	r = (xcb_list_extensions_reply_t*) state->out;
 
 	char buf[1024];
 	char* pos = buf;
@@ -133,42 +133,42 @@ u16 handle_list_extensions(int file, const u8* in, u8* out, u8 minor, u16 len) {
 
 	r->response_type = 1;
 	r->names_len = _extensions_cnt;
-	r->sequence = _counter;
+	r->sequence = state->counter;
 	r->length = l / 4;
 
-	write(file, out, 32);
-	write(file, buf, l);
+	write(state->file, r, 32);
+	write(state->file, buf, l);
 	return 0;
 }
 
-u16 handle_get_input_focus(int file, const u8* in, u8* out, u8 minor, u16 len) {
+u16 handle_get_input_focus(server_state_t* state, u8 minor, u16 len) {
 	xcb_get_input_focus_reply_t* r;
 
-	r = (xcb_get_input_focus_reply_t*) out;
+	r = (xcb_get_input_focus_reply_t*) state->out;
 	printf("GetInputFocus\n");
 
 	// Pretend there is no focus
 	r->response_type = 1;
 	r->revert_to = XCB_INPUT_FOCUS_PARENT;
-	r->sequence = _counter;
+	r->sequence = state->counter;
 	r->length = 0;
 
 	r->focus = XCB_INPUT_FOCUS_NONE;
-	write(file, out, 32);
+	write(state->file, r, 32);
 	return 0;
 }
 
-u16 handle_get_property(int file, const u8* in, u8* out, u8 minor, u16 len) {
+u16 handle_get_property(server_state_t* state, u8 minor, u16 len) {
 	xcb_get_property_request_t* i;
 	xcb_get_property_reply_t* r;
 
-	i = (xcb_get_property_request_t*) in;
-	r = (xcb_get_property_reply_t*) out;
+	i = (xcb_get_property_request_t*) state->in;
+	r = (xcb_get_property_reply_t*) state->out;
 	
 	printf("GetProperty: prop=%u, get=0x%x+0x%x\n", i->property, 4 * i->long_offset, 4 * i->long_length);
 	
 	r->response_type = 1;
-	r->sequence = _counter;
+	r->sequence = state->counter;
 
 	switch(i->property) {
 //		case XCB_ATOM_RESOURCE_MANAGER:		
@@ -184,42 +184,42 @@ u16 handle_get_property(int file, const u8* in, u8* out, u8 minor, u16 len) {
 			break;
 	}
 
-	write(file, out, 32);
+	write(state->file, r, 32);
 
 	return 0;
 }
 
-u16 handle_create_gc(int file, const u8* in, u8* out, u8 minor, u16 len) {
+u16 handle_create_gc(server_state_t* state, u8 minor, u16 len) {
 	xcb_create_gc_request_t* i;
-	i = (xcb_create_gc_request_t*) in;
+	i = (xcb_create_gc_request_t*) state->in;
 
 	printf("CreateGC: cid=%d, drawable=%u, mask=%d\n", i->cid, i->drawable, i->value_mask);
 	return 0;
 }
 
-u16 handle_free_gc(int file, const u8* in, u8* out, u8 minor, u16 len) {
+u16 handle_free_gc(server_state_t* state, u8 minor, u16 len) {
 	xcb_free_gc_request_t* i;
-	i = (xcb_free_gc_request_t*) in;
+	i = (xcb_free_gc_request_t*) state->in;
 
 	printf("FreeGC: cid=%d\n", i->gc);
 	return 0;
 }
 
-u16 handle_query_extension(int file, const u8* in, u8* out, u8 minor, u16 len) {
+u16 handle_query_extension(server_state_t* state, u8 minor, u16 len) {
 	char buf[128];
 	xcb_query_extension_request_t* i;
 	xcb_query_extension_reply_t* r;
 
-	i = (xcb_query_extension_request_t*) in;
-	r = (xcb_query_extension_reply_t*) out;
+	i = (xcb_query_extension_request_t*) state->in;
+	r = (xcb_query_extension_reply_t*) state->out;
 
-	memcpy(buf, &in[sizeof(xcb_query_extension_request_t)], i->name_len);
+	memcpy(buf, &state->in[sizeof(xcb_query_extension_request_t)], i->name_len);
 	buf[i->name_len] = '\0';
 	
 	printf("QueryExtension: \"%s\"", buf);
 		
 	r->response_type = 1;
-	r->sequence = (uint16_t) _counter;
+	r->sequence = (uint16_t) state->counter;
 	r->length = 0;
 	
 	r->present = 0;
@@ -229,15 +229,15 @@ u16 handle_query_extension(int file, const u8* in, u8* out, u8 minor, u16 len) {
 
 	if(!strcmp(buf, "XKEYBOARD")) {
 		r->present = 1;
-		r->major_opcode = _xkb_opcode;
+		r->major_opcode = _globals.xkb_opcode;
 	}
 	if(!strcmp(buf, "DAMAGE")) {
 		r->present = 1;
-		r->major_opcode = _damage_opcode;
+		r->major_opcode = _globals.damage_opcode;
 	}
 	if(!strcmp(buf, "RANDR")) {
 		r->present = 1;
-		r->major_opcode = _randr_opcode;
+		r->major_opcode = _globals.randr_opcode;
 	}
 
 	if(!r->present) {
@@ -246,7 +246,7 @@ u16 handle_query_extension(int file, const u8* in, u8* out, u8 minor, u16 len) {
 		printf(", present\n");
 	}
 
-	write(file, out, 32);
+	write(state->file, r, 32);
 	return 0;
 }
 
