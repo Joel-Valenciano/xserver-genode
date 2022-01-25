@@ -231,6 +231,7 @@ u16 handle_query_extension(server_state_t* state, u8 minor, u16 len) {
 		r->present = 1;
 		r->major_opcode = _globals.xkb_opcode;
 	}
+	/*
 	if(!strcmp(buf, "DAMAGE")) {
 		r->present = 1;
 		r->major_opcode = _globals.damage_opcode;
@@ -239,6 +240,7 @@ u16 handle_query_extension(server_state_t* state, u8 minor, u16 len) {
 		r->present = 1;
 		r->major_opcode = _globals.randr_opcode;
 	}
+	*/
 
 	if(!r->present) {
 		printf(", not present\n");
