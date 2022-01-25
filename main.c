@@ -348,7 +348,8 @@ int main() {
 
 	saddr.sin_family = AF_INET;
 	saddr.sin_port = htons(6005);
-	saddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	//saddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	saddr.sin_addr.s_addr = INADDR_ANY;
 
 	if(listen_socket(&listen_fd, &saddr)) {
 		printf("Couldn't listen() on socket, errno=%d\n", errno);
